@@ -19,268 +19,238 @@ library(Hmisc)
 library(magrittr) # needs to be run every time you start R and want to use %>%
 library(dplyr)    # alternatively, this also loads %>%
 
-createPath <- function (strPath = "") {
 
-  if (!file.exists('./raw')){
-    dir.create(file.path('./raw'))
-  }
+# #############################################
+#  Data Cleaning functions
+# #############################################
+# ----------------------------------------------------------------------------
+# |
+# | Function to change blank values to NA
+# |
+# ----------------------------------------------------------------------------
+removeBlankValues <- function (eSystemS) {
+    # OperationSystems attribute
+  eSystemS$OperationSystems[eSystemS$OperationSystems == ''] <- NA
 
-  path <- sprintf('%s/%s' , './raw', strPath)
+  # Audience attribute
+  eSystemS$Audience[eSystemS$Audience == ''] <- NA
 
-  if (!file.exists(path) && strPath != ""){
-    dir.create(file.path(path))
-  }
+  # Category attribute
+  eSystemS$Category[eSystemS$Category == ''] <- NA
 
-  path
+  # Language attribute
+  eSystemS$Language[eSystemS$Language == ''] <- NA
+
+  # Translations attribute
+  eSystemS$Translations[eSystemS$Translations == ''] <- NA
+
+  # ProgrammingLan attribute
+  eSystemS$ProgrammingLan[eSystemS$ProgrammingLan == ''] <- NA
+
+  # UserInterface attribute
+  eSystemS$UserInterface[eSystemS$UserInterface == ''] <- NA
+
+  # License attribute
+  eSystemS$License[eSystemS$License == ''] <- NA
+
+  # Returning systems without empty attributes
+  return eSystemS
 }
 
-getHTML <- function (url, folder = "", archive_name = '') {
 
-
-  path <- createPath(folder)
-
-  if(archive_name == '')
-    archive_name <- url %>%  stringr::str_extract('[^=]*$')
-  else
-    archive_name <- archive_name
-
-  arq <- sprintf('%s/%s.html' , path, archive_name)
-
-  if(file.exists(arq)) {
-
-    codHTML <- xml2::read_html(arq)
-
-  } else {
-
-    if(folder != "")
-      httr::GET(url, httr::write_disk(arq, overwrite = TRUE))
-
-    codHTML <-  url %>%
-      httr::GET() %>%
-      httr::content('text', encoding = 'latin1') %>%
-      xml2::read_html()
-
-  }
+normalize <- function (value, min, max) {
+  normalized = (value - min) / (max - min);
+  normalized;
 }
 
-getSystemInfo <- function (sysName, url) {
 
-  sysName <- (gsub("/", "", sysName))
-  sysName <- (gsub("projects", "", sysName))
-
-  codeHTML <- getHTML(url, "systems", (gsub("/", "-", sysName)))
-
-  systName <- sysName
-
-  # Variables
-  systName <- codeHTML %>%
-    rvest::html_nodes('div.title h1') %>%
-    xml2::xml_text()
-
-  systemDescription <- codeHTML %>%
-    rvest::html_nodes('h3.summary') %>%
-    xml2::xml_text()
-
-  systemDescription <- (gsub("\n", "", systemDescription))
-
-  status <- codeHTML %>%
-    rvest::html_node('span.status-value') %>%
-    xml2::xml_text()
-
-  operationSystems <- tolower(codeHTML %>%
-    rvest::html_nodes('div.platforms span') %>%
-    xml2::xml_text())
-
-  reviews <- codeHTML %>%
-    rvest::html_nodes('div.rating a') %>%
-    xml2::xml_text()
-
-  category <- codeHTML %>%
-     rvest::html_nodes('[itemprop=applicationCategory]') %>%
-    xml2::xml_text()
-
-  #category <- paste(category,collapse="/")
-  category <- (gsub("/", "-", category))
-  category <- (gsub(" ", "-", category))
-  category <- tolower(category)
-
-  rating <- codeHTML %>%
-    rvest::html_nodes('[itemprop=ratingValue]') %>%
-    xml2::xml_text()
-
-  translations <- codeHTML %>%
-    rvest::html_nodes('[itemprop=inLanguage]') %>%
-    xml2::xml_text()
-
-  for (translat in translations){
-    translat <- (gsub("/", "-", translat))
-    translat <- (gsub(" ", "-", translat))
-    translat <- tolower(translat)
-  }
-
-  lastUpdate <- codeHTML %>%
-    rvest::html_nodes('.dateUpdated') %>%
-    xml2::xml_text()
-
-  downloads <- "NA"
-
-  download_content <- codeHTML %>%
-    rvest::html_nodes('div.stats h2 a')
-
-  for (content in download_content){
-
-    if(grepl("Downloads", content, fixed=TRUE)) {
-      downloads <- content %>%  xml2::xml_text()
-    }
-  }
-
-  license <- c()
-  audience <- c()
-  programming_language <- c()
-  user_interface <- c()
-
-  projectInfo <- codeHTML %>%
-    rvest::html_nodes('section.project-info a')
-
-  for (content in projectInfo){
-
-    if(grepl("license", content, fixed=TRUE)) {
-
-      licen <- content %>%  xml2::xml_text()
-      licen <- (gsub("/", "-", licen))
-      licen <- (gsub(" ", "-", licen))
-      licen <- tolower(licen)
-
-
-      if(length(license) == 0)
-        license <- licen
-      else
-        license <- c(license, (licen))
-    }
-
-    # programming languages
-    if(grepl("language", content, fixed=TRUE)) {
-
-      prog_lan <- content %>%  xml2::xml_text()
-      prog_lan <- (gsub("/", "-", prog_lan))
-      prog_lan <- (gsub(" ", "-", prog_lan))
-      prog_lan <- tolower(prog_lan)
-
-      translations_obj <- paste(translations, collapse="/")
-
-      if(length(programming_language) == 0) {
-        p_language <- prog_lan
-        if(p_language %nin% translations_obj)
-          programming_language <- p_language
-      }
-      else
-        p_language <- prog_lan
-        if(p_language %nin% translations_obj) {
-        programming_language <- c(programming_language, p_language)
+score <- function (vectorValues, fieldName, eSystems, i) {
+  cont_score <- 0
+  for( value in vectorValues ) {
+    if(!(is.na(value))) {
+        if(grepl(value, eSystems[i, fieldName], fixed=TRUE) == TRUE) {
+          cont_score <- cont_score + 1
         }
     }
-
-    if(grepl("audience", content, fixed=TRUE)) {
-      audi <- content %>%  xml2::xml_text()
-      audi <- (gsub("/", "-", audi))
-      audi <- (gsub(" ", "-", audi))
-      audi <- tolower(audi)
-
-      if(length(audience) == 0)
-        audience <- audi
-      else
-        audience <- c(audience, audi)
-    }
-
-    #user interface
-    if(grepl("environment", content, fixed=TRUE)) {
-
-      us_in <- content %>%  xml2::xml_text()
-      us_in <- (gsub("/", "-", us_in))
-      us_in <- (gsub(" ", "-", us_in))
-      us_in <- tolower(us_in)
-
-      if(length(user_interface) == 0)
-        user_interface <- us_in
-      else
-        user_interface <- c(user_interface, (us_in))
-    }
   }
 
-  # creating the data frame
-  data <- data.frame(
-      #"SystemURL" = systemUrl,
-      "SystemName" = systName,
-      #"SystemDesc" = systemDescription,
-      "status" = status,
-      "OperationSystems" = paste(operationSystems,collapse="/"),
-      "Audience" = paste(audience,collapse="/"),
-      "Category" = paste(category,collapse="/"),
-      "Language" = paste(programming_language, collapse="/"),
-      "Translations" = paste(translations, collapse="/"),
-      "ProgrammingLan" = paste(programming_language, collapse="/"),
-      "UserInterface" = paste(user_interface, collapse="/"),
-      "LastUpdate" = lastUpdate,
-      #"Reviews" = reviews,
-      #"Rating" = rating
-      "License" = paste(license, collapse="/")
-      )
-  data
+  # return
+  cont_score
 }
 
-getSystemByPage <- function (url) {
-  codeHTML <- getHTML(url, "pages")
-  systems <- codeHTML %>% rvest::html_nodes('[itemprop=itemListElement]') %>% rvest::html_nodes('[itemprop=url]') %>% rvest::html_attr("href")
+normalizeData <- function (idealSystem, eSystems) {
+
+  OperationSystems <- unlist(strsplit(as.character(idealSystem$OperationSystems), split="/"))
+  status <- as.character(idealSystem$status)
+  Audiences <- unlist(strsplit(as.character(idealSystem$Audience), split="/"))
+  Categories <- unlist(strsplit(as.character(idealSystem$Category), split="/"))
+  Languages <- unlist(strsplit(as.character(idealSystem$Language), split="/"))
+  Translations <- unlist(strsplit(as.character(idealSystem$Translations), split="/"))
+  ProgrammingLan <- unlist(strsplit(as.character(idealSystem$ProgrammingLan), split="/"))
+  UserInterface <- unlist(strsplit(as.character(idealSystem$UserInterface), split="/"))
+  License <- unlist(strsplit(as.character(idealSystem$License), split="/"))
+
+  for( i in rownames(eSystems) ) {
+
+    # count Status
+    eSystems[i, "status"] <- normalize(as.double(eSystems[i, "status"]), 0, 1)
+
+    # count Operation System
+    eSystems[i, "OperationSystems"] <- normalize(as.double(eSystems[i, "OperationSystems"]), 0, length(OperationSystems))
+
+    # count Audience
+    eSystems[i, "Audience"] <- normalize(as.double(eSystems[i, "Audience"]), 0, length(Audiences))
+
+    # Category
+    eSystems[i, "Category"] <- normalize(as.double(eSystems[i, "Category"]), 0, length(Categories))
+
+    # Languages
+    eSystems[i, "Language"] <- normalize(as.double(eSystems[i, "Language"]), 0, length(Languages))
+
+    # Translations
+    eSystems[i, "Translations"] <- normalize(as.double(eSystems[i, "Translations"]), 0, length(Translations))
+
+
+    # ProgrammingLan
+    eSystems[i, "ProgrammingLan"] <- normalize(as.double(eSystems[i, "ProgrammingLan"]), 0, length(ProgrammingLan))
+
+    # UserInterface
+    eSystems[i, "UserInterface"] <- normalize(as.double(eSystems[i, "UserInterface"]), 0, length(UserInterface))
+
+    # License
+    eSystems[i, "License"] <- normalize(as.double(eSystems[i, "License"]), 0, length(eSystems))
+
+  }
+
+  eSystems
+
 }
 
-allPagesURL <- sprintf("https://sourceforge.net/directory/?page=%d", 1:20)
-systems <- c()
-for(page in allPagesURL) {
-  systems <- c(systems, getSystemByPage(page))
+
+calculeScore <- function (idealSystem, eSystems) {
+
+  OperationSystems <- unlist(strsplit(as.character(idealSystem$OperationSystems), split="/"))
+  status <- as.character(idealSystem$status)
+  Audiences <- unlist(strsplit(as.character(idealSystem$Audience), split="/"))
+  Categories <- unlist(strsplit(as.character(idealSystem$Category), split="/"))
+  Languages <- unlist(strsplit(as.character(idealSystem$Language), split="/"))
+  Translations <- unlist(strsplit(as.character(idealSystem$Translations), split="/"))
+  ProgrammingLan <- unlist(strsplit(as.character(idealSystem$ProgrammingLan), split="/"))
+  UserInterface <- unlist(strsplit(as.character(idealSystem$UserInterface), split="/"))
+  License <- unlist(strsplit(as.character(idealSystem$License), split="/"))
+
+  for( i in rownames(eSystems) ) {
+
+    # count Status
+    eSystems[i, "status"] <- score(status, "status", eSystems, i)
+
+    # count Operation System
+    eSystems[i, "OperationSystems"] <- score(OperationSystems, "OperationSystems", eSystems, i)
+
+    # count Audience
+    eSystems[i, "Audience"] <- score(Audiences, "Audience", eSystems, i)
+
+    # Category
+    eSystems[i, "Category"] <- score(Categories, "Category", eSystems, i)
+
+    # Languages
+    eSystems[i, "Language"] <- score(Languages, "Language", eSystems, i)
+
+    # Languages
+    eSystems[i, "Translations"] <- score(Translations, "Translations", eSystems, i)
+
+    # ProgrammingLan
+    eSystems[i, "ProgrammingLan"] <- score(ProgrammingLan, "ProgrammingLan", eSystems, i)
+
+    # UserInterface
+    eSystems[i, "UserInterface"] <- score(UserInterface, "UserInterface", eSystems, i)
+
+    # License
+    eSystems[i, "License"] <- score(License, "License", eSystems, i)
+  }
+
+
+  eSystems[nrow(eSystems) + 1,] = c(
+    "idealSystem",
+    1,
+    length(OperationSystems),
+    length(Audiences),
+    length(Categories),
+    length(Languages),
+    length(Translations),
+    length(ProgrammingLan),
+    length(UserInterface),
+    "",
+    length(License)
+    )
+
+
+  eSystems <- subset(eSystems, select = -c(LastUpdate))
+
+  eSystems
+
 }
 
-data <- data.frame()
-for(system in systems) {
-  sysURL <- sprintf("https://sourceforge.net%s", system)
-  try(data <- rbind(data, getSystemInfo(system, sysURL)))
-}
+
+# #############################################
+#  Analysis goes here
+# #############################################
+data <- read.csv('../data_set.csv', header = TRUE, stringsAsFactors = FALSE)
+
+# Removing Blank values
+eSystemS <- removeBlankValues(data[1:3000,])
 
 
-View(data)
-write.csv(data,'data_set.csv', row.names = FALSE)
+# #############################################
+#  Defining ideal systems
+# #############################################
 
-
-eSystemS <- data[1:10,]
-
+# Educational Chat
 idealSystem <- data.frame(
   "SystemName" = "Candidate System",
   "status" = "Beta",
-  "OperationSystems" = "linux/windows",
-  "Audience" = "developers",
-  "Category" = 0,
-  "Language" = "english",
-  "Translations" = "english",
-  "ProgrammingLan" = "c++",
-  "UserInterface" = 0,
+  "OperationSystems" = "windows",
+  "Audience" = "education",
+  "Category" = "chat/video-conferencing/communications",
+  "Language" = 0,
+  "Translations" = "Portuguese",
+  "ProgrammingLan" = "c++/java",
+  "UserInterface" = "handheld-mobile-pda",
   "LastUpdate" = 0,
-  "License" = "gnu-general-public-license-version-2.0-(gplv2)"
+  "License" = 0
 )
 
-# Read CSV into R
-MyData <- read.csv(file="normalized_new.csv", header=TRUE, sep=",")
-View(MyData)
+escoreForFirstSystem <- eSystemS
+escoreForFirstSystem <- calculeScore(idealSystem, escoreForFirstSystem)
 
+View(escoreForFirstSystem)
+
+# #############################################
+#  Normalizing Data
+# #############################################
+MyData <- normalizeData(idealSystem, escoreForFirstSystem)
+# #############################################
+#  Normalizing Data
+# #############################################
+
+
+# removing systems that are not in audience or category
+MyData <- MyData[MyData$Audience > 0,]
+MyData <- MyData[MyData$Category > 0,]
+
+
+View(MyData)
 
 
 # #############################################
 #  k-means
 # #############################################
 # Lendo os arquivo que contém o data set com a pontuação calculada e normalizada
-MyData <- read.csv(file="example_1.csv", header=TRUE, sep=",")
+#MyData <- read.csv(file="data_set.csv", header=TRUE, sep=",")
 View(MyData)
 
 # execução do k-means nos dados normalizados com k = 10
-test <- kmeans(MyData[,2:10], 10)
+test <- kmeans(MyData[,2:8], 5)
 
 # cluster of ideal system
 get_cluster <- tail(test$cluster,1)
@@ -290,6 +260,10 @@ systems_candidates <- MyData[test$cluster==get_cluster,]
 
 #mostrando os sistemas candidatos
 View(systems_candidates)
+
+
+
+
 
 
 # #############################################
@@ -310,7 +284,7 @@ get_cluster <- tail(grupos,1)
 # recuperando os sistemas no mesmo cluster
 systems_candidates <- MyData[grupos==get_cluster,]
 
-plot(agrupamento, main = "Agrupamento Hier?rquico Aglomerativo", xlab = "Sistemas", ylab = "Dist?ncia")
+#plot(agrupamento, main = "Agrupamento Hier?rquico Aglomerativo", xlab = "Sistemas", ylab = "Dist?ncia")
 
 View(systems_candidates)
 
